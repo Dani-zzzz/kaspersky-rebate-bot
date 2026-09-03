@@ -1,8 +1,8 @@
 import os
 import csv
 import logging
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import Updater, CommandHandler, MessageHandler, ConversationHandler, Filters
+from telegram import Update, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, MessageHandler, ConversationHandler, Filters
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
@@ -33,29 +33,40 @@ def start(update, context):
     update.message.reply_text("👋 Я калькулятор рибейтов. Нажмите /calculate")
 
 def calculate_start(update, context):
-    keyboard = [[s] for s in PARTNER_STATUSES]
-    update.message.reply_text("Выберите статус:", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
+    keyboard = [[InlineKeyboardButton(s, callback_data=s)] for s in PARTNER_STATUSES]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    update.message.reply_text("Шаг 1: Выберите статус партнера:", reply_markup=reply_markup)
     return STATUS
 
-def select_status(update, context):
-    context.user_data['status'] = update.message.text
-    keyboard = [[s] for s in SPECIALIZATIONS]
-    update.message.reply_text("Выберите специализацию:", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
+def status_callback(update, context):
+    query = update.callback_query
+    query.answer()
+    context.user_data['status'] = query.data
+    keyboard = [[InlineKeyboardButton(s, callback_data=s)] for s in SPECIALIZATIONS]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    query.edit_message_text(text=f"✅ Статус: {query.data}\n\nШаг 2: Выберите специализацию:", reply_markup=reply_markup)
     return SPECIALIZATION
 
-def select_specialization(update, context):
-    context.user_data['specialization'] = update.message.text
-    update.message.reply_text("Введите название продукта и тип лицензии:", reply_markup=ReplyKeyboardRemove())
+def specialization_callback(update, context):
+    query = update.callback_query
+    query.answer()
+    context.user_data['specialization'] = query.data
+    query.edit_message_text(
+        text=f"✅ Статус: {context.user_data['status']}\n✅ Специализация: {query.data}\n\n"
+             "Шаг 3: Введите полное название продукта и тип лицензии\n"
+             "Пример: Kaspersky Anti Targeted Attack Platform Advanced. 100-149 Node 1 year Base License",
+        reply_markup=None
+    )
     return PRODUCT
 
-def calculate_rebate(update, context):
+def product_input(update, context):
     query = update.message.text.lower()
     status = context.user_data['status']
     spec = context.user_data['specialization']
     found = next((p for p in PRODUCTS_DB if p['product_name'].lower() in query), None)
     if not found:
-        update.message.reply_text("Продукт не найден. /calculate")
-        return ConversationHandler.END
+        update.message.reply_text("❌ Продукт не найден. Попробуйте ещё раз или /calculate")
+        return PRODUCT
     base = int(found['base_gold' if status == 'Gold' else 'base_platinum'])
     total = base
     required = found['specialization_required']
@@ -79,7 +90,7 @@ def cancel(update, context):
     update.message.reply_text("Отменено.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
-# Веб-сервер
+# Веб-сервер для Render
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -96,16 +107,20 @@ def main():
         raise ValueError("BOT_TOKEN не задан")
     updater = Updater(token, use_context=True)
     dp = updater.dispatcher
+
     dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(ConversationHandler(
+
+    conv_handler = ConversationHandler(
         entry_points=[CommandHandler('calculate', calculate_start)],
         states={
-            STATUS: [MessageHandler(Filters.text & ~Filters.command, select_status)],
-            SPECIALIZATION: [MessageHandler(Filters.text & ~Filters.command, select_specialization)],
-            PRODUCT: [MessageHandler(Filters.text & ~Filters.command, calculate_rebate)],
+            STATUS: [CallbackQueryHandler(status_callback)],
+            SPECIALIZATION: [CallbackQueryHandler(specialization_callback)],
+            PRODUCT: [MessageHandler(Filters.text & ~Filters.command, product_input)],
         },
         fallbacks=[CommandHandler('cancel', cancel)],
-    ))
+    )
+    dp.add_handler(conv_handler)
+
     logging.info("Бот запущен")
     threading.Thread(target=run_web, daemon=True).start()
     updater.start_polling()
