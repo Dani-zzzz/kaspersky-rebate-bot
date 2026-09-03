@@ -29,6 +29,7 @@ def load_products():
         with open('products.csv', 'r', encoding='utf-8') as file:
             reader = csv.DictReader(file)
             for row in reader:
+                # Пропускаем пустые строки
                 if all(v is None or v == '' for v in row.values()):
                     continue
                 cleaned_row = {}
@@ -141,13 +142,33 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Расчет отменен.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
-# Основная функция запуска бота
+# ============ Веб-сервер (aiohttp) ============
+async def handle_health(request):
+    return web.Response(text="OK")
+
+def create_web_app():
+    app = web.Application()
+    app.router.add_get('/', handle_health)
+    return app
+
+async def run_web():
+    port = int(os.environ.get('PORT', 8080))
+    web_app = create_web_app()
+    runner = web.AppRunner(web_app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    logging.info(f"Веб-сервер запущен на порту {port}")
+    # Держим веб-сервер активным бесконечно
+    await asyncio.Event().wait()
+
+# ============ Основная функция ============
 async def main():
     token = os.environ.get('BOT_TOKEN')
     if not token:
         raise ValueError("Не задан BOT_TOKEN в переменных окружения!")
 
-    app = Application.builder().token(token).build()
+    bot_app = Application.builder().token(token).build()
 
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('calculate', calculate_start)],
@@ -159,30 +180,15 @@ async def main():
         fallbacks=[CommandHandler('cancel', cancel)],
     )
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(conv_handler)
+    bot_app.add_handler(CommandHandler("start", start))
+    bot_app.add_handler(conv_handler)
 
     logging.info("Бот запущен и готов к работе")
-    await app.run_polling()
 
-# Веб-сервер для проверки жизни
-async def health(request):
-    return web.Response(text="OK")
-
-async def run_web():
-    app = web.Application()
-    app.router.add_get('/', health)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', int(os.environ.get('PORT', 8080)))
-    await site.start()
-    logging.info("Веб-сервер для healthcheck запущен")
-    # Бесконечное ожидание, чтобы веб-сервер работал
-    await asyncio.Event().wait()
+    # Запускаем веб-сервер и бота параллельно
+    web_task = asyncio.create_task(run_web())
+    # Запускаем бота (блокирует выполнение, пока работает)
+    await bot_app.run_polling()
 
 if __name__ == '__main__':
-    # Запускаем веб-сервер в отдельной задаче, но в том же цикле событий
-    loop = asyncio.get_event_loop()
-    loop.create_task(run_web())
-    # Запускаем бота (основная задача)
-    loop.run_until_complete(main())
+    asyncio.run(main())
