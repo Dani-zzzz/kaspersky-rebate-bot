@@ -2,8 +2,7 @@ import os
 import csv
 import logging
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import Updater, CommandHandler, MessageHandler, ConversationHandler
-from telegram.ext import filters
+from telegram.ext import Updater, CommandHandler, MessageHandler, ConversationHandler, Filters
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
@@ -101,9 +100,9 @@ def main():
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('calculate', calculate_start)],
         states={
-            STATUS: [MessageHandler(filters.TEXT & ~filters.COMMAND, select_status)],
-            SPECIALIZATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, select_specialization)],
-            PRODUCT: [MessageHandler(filters.TEXT & ~filters.COMMAND, calculate_rebate)],
+            STATUS: [MessageHandler(Filters.text & ~Filters.command, select_status)],
+            SPECIALIZATION: [MessageHandler(Filters.text & ~Filters.command, select_specialization)],
+            PRODUCT: [MessageHandler(Filters.text & ~Filters.command, calculate_rebate)],
         },
         fallbacks=[CommandHandler('cancel', cancel)],
     ))
