@@ -3,7 +3,6 @@ import csv
 import logging
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
-from aiohttp import web
 import asyncio
 
 # Настройка логирования
@@ -29,7 +28,6 @@ def load_products():
         with open('products.csv', 'r', encoding='utf-8') as file:
             reader = csv.DictReader(file)
             for row in reader:
-                # Пропускаем пустые строки
                 if all(v is None or v == '' for v in row.values()):
                     continue
                 cleaned_row = {}
@@ -142,27 +140,24 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Расчет отменен.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
-# ============ Веб-сервер (aiohttp) ============
-async def handle_health(request):
-    return web.Response(text="OK")
-
-def create_web_app():
-    app = web.Application()
-    app.router.add_get('/', handle_health)
-    return app
+# ============ Веб-сервер через asyncio (без сторонних библиотек) ============
+async def handle_health(reader, writer):
+    # Читаем запрос (необязательно)
+    await reader.read()
+    # Отправляем ответ
+    writer.write(b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\nOK")
+    await writer.drain()
+    writer.close()
+    await writer.wait_closed()
 
 async def run_web():
     port = int(os.environ.get('PORT', 8080))
-    web_app = create_web_app()
-    runner = web.AppRunner(web_app)
-    await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', port)
-    await site.start()
+    server = await asyncio.start_server(handle_health, '0.0.0.0', port)
     logging.info(f"Веб-сервер запущен на порту {port}")
-    # Держим веб-сервер активным бесконечно
-    await asyncio.Event().wait()
+    async with server:
+        await server.serve_forever()
 
-# ============ Основная функция ============
+# ============ Основная асинхронная функция ============
 async def main():
     token = os.environ.get('BOT_TOKEN')
     if not token:
@@ -185,9 +180,9 @@ async def main():
 
     logging.info("Бот запущен и готов к работе")
 
-    # Запускаем веб-сервер и бота параллельно
+    # Запускаем веб-сервер в фоне
     web_task = asyncio.create_task(run_web())
-    # Запускаем бота (блокирует выполнение, пока работает)
+    # Запускаем бота (блокирует выполнение)
     await bot_app.run_polling()
 
 if __name__ == '__main__':
