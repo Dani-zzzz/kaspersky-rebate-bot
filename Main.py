@@ -2,8 +2,9 @@ import os
 import csv
 import logging
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
-import asyncio
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, ConversationHandler
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # Настройка логирования
 logging.basicConfig(
@@ -44,27 +45,27 @@ def load_products():
 PRODUCTS_DB = load_products()
 
 # Команда /start
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
+def start(update: Update, context):
+    update.message.reply_text(
         "👋 Добро пожаловать в калькулятор рибейтов Kaspersky!\n\n"
         "Я помогу рассчитать размер премии за продажу продуктов.\n"
         "Нажмите /calculate для начала расчета или /cancel для отмены."
     )
 
 # Начало расчёта
-async def calculate_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def calculate_start(update: Update, context):
     reply_keyboard = [[s] for s in PARTNER_STATUSES]
-    await update.message.reply_text(
+    update.message.reply_text(
         "Шаг 1 из 3: Выберите ваш статус партнера:",
         reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True)
     )
     return STATUS
 
 # Выбор статуса
-async def select_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def select_status(update: Update, context):
     context.user_data['status'] = update.message.text
     reply_keyboard = [[s] for s in SPECIALIZATIONS]
-    await update.message.reply_text(
+    update.message.reply_text(
         f"✅ Статус: {update.message.text}\n\n"
         "Шаг 2 из 3: Выберите специализацию (или 'Нет специализации'):",
         reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True)
@@ -72,9 +73,9 @@ async def select_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return SPECIALIZATION
 
 # Выбор специализации
-async def select_specialization(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def select_specialization(update: Update, context):
     context.user_data['specialization'] = update.message.text
-    await update.message.reply_text(
+    update.message.reply_text(
         f"✅ Статус: {context.user_data['status']}\n"
         f"✅ Специализация: {update.message.text}\n\n"
         "Шаг 3 из 3: Введите полное наименование продукта и тип лицензии\n"
@@ -84,7 +85,7 @@ async def select_specialization(update: Update, context: ContextTypes.DEFAULT_TY
     return PRODUCT
 
 # Расчёт рибейта
-async def calculate_rebate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def calculate_rebate(update: Update, context):
     product_query = update.message.text.lower()
     status = context.user_data['status']
     specialization = context.user_data['specialization']
@@ -96,7 +97,7 @@ async def calculate_rebate(update: Update, context: ContextTypes.DEFAULT_TYPE):
             break
 
     if not found_product:
-        await update.message.reply_text(
+        update.message.reply_text(
             "❌ Продукт не найден в базе.\n\n"
             "Попробуйте ввести точное название или начните заново: /calculate"
         )
@@ -131,59 +132,59 @@ async def calculate_rebate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         total += 10
 
     explanation.append(f"\n💰 **ИТОГОВЫЙ РИБЕЙТ: {total}%**")
-    await update.message.reply_text("\n".join(explanation), parse_mode='Markdown')
-    await update.message.reply_text("Хотите рассчитать еще один продукт? /calculate")
+    update.message.reply_text("\n".join(explanation), parse_mode='Markdown')
+    update.message.reply_text("Хотите рассчитать еще один продукт? /calculate")
     return ConversationHandler.END
 
 # Отмена
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Расчет отменен.", reply_markup=ReplyKeyboardRemove())
+def cancel(update: Update, context):
+    update.message.reply_text("Расчет отменен.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
-# ============ Веб-сервер через asyncio (без сторонних библиотек) ============
-async def handle_health(reader, writer):
-    # Читаем запрос (необязательно)
-    await reader.read()
-    # Отправляем ответ
-    writer.write(b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\nOK")
-    await writer.drain()
-    writer.close()
-    await writer.wait_closed()
+# ============ Веб-сервер для проверки здоровья ============
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
 
-async def run_web():
+def run_web():
     port = int(os.environ.get('PORT', 8080))
-    server = await asyncio.start_server(handle_health, '0.0.0.0', port)
-    logging.info(f"Веб-сервер запущен на порту {port}")
-    async with server:
-        await server.serve_forever()
+    server = HTTPServer(('0.0.0.0', port), HealthHandler)
+    server.serve_forever()
 
-# ============ Основная асинхронная функция ============
-async def main():
+# ============ Основная функция ============
+def main():
     token = os.environ.get('BOT_TOKEN')
     if not token:
         raise ValueError("Не задан BOT_TOKEN в переменных окружения!")
 
-    bot_app = Application.builder().token(token).build()
+    # Создаём Updater (используем старый синхронный подход)
+    updater = Updater(token=token, use_context=True)
+    dp = updater.dispatcher
 
+    # Обработчики команд
+    dp.add_handler(CommandHandler("start", start))
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('calculate', calculate_start)],
         states={
-            STATUS: [MessageHandler(filters.TEXT & ~filters.COMMAND, select_status)],
-            SPECIALIZATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, select_specialization)],
-            PRODUCT: [MessageHandler(filters.TEXT & ~filters.COMMAND, calculate_rebate)],
+            STATUS: [MessageHandler(Filters.text & ~Filters.command, select_status)],
+            SPECIALIZATION: [MessageHandler(Filters.text & ~Filters.command, select_specialization)],
+            PRODUCT: [MessageHandler(Filters.text & ~Filters.command, calculate_rebate)],
         },
         fallbacks=[CommandHandler('cancel', cancel)],
     )
-
-    bot_app.add_handler(CommandHandler("start", start))
-    bot_app.add_handler(conv_handler)
+    dp.add_handler(conv_handler)
 
     logging.info("Бот запущен и готов к работе")
 
-    # Запускаем веб-сервер в фоне
-    web_task = asyncio.create_task(run_web())
+    # Запускаем веб-сервер в отдельном потоке (для Render)
+    web_thread = threading.Thread(target=run_web, daemon=True)
+    web_thread.start()
+
     # Запускаем бота (блокирует выполнение)
-    await bot_app.run_polling()
+    updater.start_polling()
+    updater.idle()
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    main()
