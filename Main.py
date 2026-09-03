@@ -2,7 +2,8 @@ import os
 import csv
 import logging
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, ConversationHandler
+from telegram.ext import Updater, CommandHandler, MessageHandler, ConversationHandler
+from telegram.ext import filters
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
@@ -159,18 +160,16 @@ def main():
     if not token:
         raise ValueError("Не задан BOT_TOKEN в переменных окружения!")
 
-    # Создаём Updater (используем старый синхронный подход)
     updater = Updater(token=token, use_context=True)
     dp = updater.dispatcher
 
-    # Обработчики команд
     dp.add_handler(CommandHandler("start", start))
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('calculate', calculate_start)],
         states={
-            STATUS: [MessageHandler(Filters.text & ~Filters.command, select_status)],
-            SPECIALIZATION: [MessageHandler(Filters.text & ~Filters.command, select_specialization)],
-            PRODUCT: [MessageHandler(Filters.text & ~Filters.command, calculate_rebate)],
+            STATUS: [MessageHandler(filters.TEXT & ~filters.COMMAND, select_status)],
+            SPECIALIZATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, select_specialization)],
+            PRODUCT: [MessageHandler(filters.TEXT & ~filters.COMMAND, calculate_rebate)],
         },
         fallbacks=[CommandHandler('cancel', cancel)],
     )
@@ -178,11 +177,9 @@ def main():
 
     logging.info("Бот запущен и готов к работе")
 
-    # Запускаем веб-сервер в отдельном потоке (для Render)
     web_thread = threading.Thread(target=run_web, daemon=True)
     web_thread.start()
 
-    # Запускаем бота (блокирует выполнение)
     updater.start_polling()
     updater.idle()
 
