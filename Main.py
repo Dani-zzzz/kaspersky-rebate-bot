@@ -3,8 +3,8 @@ import csv
 import logging
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
-from http.server import HTTPServer, BaseHTTPRequestHandler
-import threading
+from aiohttp import web
+import asyncio
 
 # Настройка логирования
 logging.basicConfig(
@@ -29,12 +29,10 @@ def load_products():
         with open('products.csv', 'r', encoding='utf-8') as file:
             reader = csv.DictReader(file)
             for row in reader:
-                # Пропускаем строки, где все значения пустые
                 if all(v is None or v == '' for v in row.values()):
                     continue
                 cleaned_row = {}
                 for k, v in row.items():
-                    # Преобразуем ключ и значение в строку, затем удаляем пробелы
                     key = str(k).strip()
                     value = str(v).strip() if v is not None else ''
                     cleaned_row[key] = value
@@ -43,7 +41,7 @@ def load_products():
     except FileNotFoundError:
         logging.error("Файл products.csv не найден!")
     return products
-    
+
 PRODUCTS_DB = load_products()
 
 # Команда /start
@@ -144,7 +142,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # Основная функция запуска бота
-def main():
+async def main():
     token = os.environ.get('BOT_TOKEN')
     if not token:
         raise ValueError("Не задан BOT_TOKEN в переменных окружения!")
@@ -165,23 +163,26 @@ def main():
     app.add_handler(conv_handler)
 
     logging.info("Бот запущен и готов к работе")
-    app.run_polling()
+    await app.run_polling()
 
-# ============ Простой HTTP-сервер для проверки жизни ============
-class HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"OK")
+# Веб-сервер для проверки жизни
+async def health(request):
+    return web.Response(text="OK")
 
-def run_web():
-    port = int(os.environ.get('PORT', 8080))
-    server = HTTPServer(('0.0.0.0', port), HealthHandler)
-    server.serve_forever()
+async def run_web():
+    app = web.Application()
+    app.router.add_get('/', health)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', int(os.environ.get('PORT', 8080)))
+    await site.start()
+    logging.info("Веб-сервер для healthcheck запущен")
+    # Бесконечное ожидание, чтобы веб-сервер работал
+    await asyncio.Event().wait()
 
 if __name__ == '__main__':
-    # Запускаем веб-сервер в фоновом потоке
-    web_thread = threading.Thread(target=run_web, daemon=True)
-    web_thread.start()
-    # Запускаем бота в основном потоке
-    main()
+    # Запускаем веб-сервер в отдельной задаче, но в том же цикле событий
+    loop = asyncio.get_event_loop()
+    loop.create_task(run_web())
+    # Запускаем бота (основная задача)
+    loop.run_until_complete(main())
