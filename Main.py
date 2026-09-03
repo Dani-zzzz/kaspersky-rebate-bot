@@ -32,12 +32,12 @@ def load_products():
                 # Пропускаем строки, где все значения пустые
                 if all(v is None or v == '' for v in row.values()):
                     continue
-                # Безопасно удаляем пробелы, обрабатывая None
                 cleaned_row = {}
                 for k, v in row.items():
-                    k = k.strip() if k else ''
-                    v = v.strip() if v else ''
-                    cleaned_row[k] = v
+                    # Преобразуем ключ и значение в строку, затем удаляем пробелы
+                    key = str(k).strip()
+                    value = str(v).strip() if v is not None else ''
+                    cleaned_row[key] = value
                 products.append(cleaned_row)
         logging.info(f"Загружено {len(products)} продуктов из CSV")
     except FileNotFoundError:
