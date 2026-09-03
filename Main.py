@@ -6,7 +6,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 
 # Специальная библиотека для поддержки жизни на Koyeb
 import staypresent
-staypresent.run(bot_file=""
+staypresent.run(bot_file="")
 
 # Настройка логирования
 logging.basicConfig(
