@@ -29,13 +29,21 @@ def load_products():
         with open('products.csv', 'r', encoding='utf-8') as file:
             reader = csv.DictReader(file)
             for row in reader:
-                row = {k.strip(): v.strip() for k, v in row.items()}
-                products.append(row)
+                # Пропускаем строки, где все значения пустые
+                if all(v is None or v == '' for v in row.values()):
+                    continue
+                # Безопасно удаляем пробелы, обрабатывая None
+                cleaned_row = {}
+                for k, v in row.items():
+                    k = k.strip() if k else ''
+                    v = v.strip() if v else ''
+                    cleaned_row[k] = v
+                products.append(cleaned_row)
         logging.info(f"Загружено {len(products)} продуктов из CSV")
     except FileNotFoundError:
         logging.error("Файл products.csv не найден!")
     return products
-
+    
 PRODUCTS_DB = load_products()
 
 # Команда /start
