@@ -9,7 +9,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 STATUS, SPECIALIZATION, PRODUCT = range(3)
-PARTNER_STATUSES = ["Gold", "Platinum"]
+PARTNER_STATUSES = ["Silver", "Gold", "Platinum"]  # <-- добавлен Silver
 SPECIALIZATIONS = ["NDR", "EDR/XDR", "SIEM", "ICS", "KasperskyOS", "Threat intelligence", "CWP", "SASE", "Нет специализации"]
 
 def load_products():
@@ -67,10 +67,25 @@ def product_input(update, context):
     if not found:
         update.message.reply_text("❌ Продукт не найден. Попробуйте ещё раз или /calculate")
         return PRODUCT
-    base = int(found['base_gold' if status == 'Gold' else 'base_platinum'])
+
+    # Определяем базовую ставку в зависимости от статуса
+    if status == "Gold":
+        base = int(found['base_gold'])
+    elif status == "Platinum":
+        base = int(found['base_platinum'])
+    elif status == "Silver":
+        # Для Silver базовая ставка для Strategic продуктов – 10%
+        # (для General было бы 5%, но у нас только Strategic)
+        base = 10
+    else:
+        base = 0
+
     total = base
     required = found['specialization_required']
-    msg = [f"📊 **{found['product_name']}**", f"Группа: {found['product_group']}", f"Статус: {status}", f"Базовая ставка: {base}%"]
+    product_group = found['product_group']
+    msg = [f"📊 **{found['product_name']}**", f"Группа: {product_group}", f"Статус: {status}", f"Базовая ставка: {base}%"]
+
+    # Акселераторы
     if required and spec != "Нет специализации" and required.lower() in spec.lower():
         acc = int(found['accelerator'])
         total += acc
@@ -81,6 +96,7 @@ def product_input(update, context):
     else:
         total += 10
         msg.append("Акселератор для General: +10%")
+
     msg.append(f"💰 **ИТОГ: {total}%**")
     update.message.reply_text("\n".join(msg), parse_mode='Markdown')
     update.message.reply_text("Снова /calculate")
