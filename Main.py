@@ -52,7 +52,7 @@ PRODUCTS_DB = load_products()
 
 # ---------- Обработчики команд ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text("👋 Я калькулятор рибейтов. Нажмите /calculate")
+    await update.message.reply_text("👋 Я калькулятор рибейтов. Размер рибейта зависит от статуса компании и специализации. Нажмите /calculate")
 
 async def calculate_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     keyboard = [[InlineKeyboardButton(s, callback_data=s)] for s in PARTNER_STATUSES]
